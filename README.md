@@ -155,6 +155,31 @@ This extension was built with:
 - **[Claude Code](https://claude.com/claude-code)** - AI-powered coding assistant
 - **[dev-browser](https://github.com/SawyerHood/dev-browser)** by [Sawyer Hood](https://github.com/SawyerHood) - Browser automation tool for development and testing
 
+## Delete OpenAI logs using python script and downloaded logs.csv
+
+"""
+Delete OpenAI response logs (responses) by API key.
+
+This script:
+1. Loads response IDs from logs.csv in the same folder
+2. Deletes them with adaptive concurrency and 429 backoff
+3. Handles errors and reports progress
+
+Usage:
+    python3 docker/delete_openai_logs.py --api-key sk_... [--dry-run]
+
+Options:
+    --api-key KEY     OpenAI API key (required)
+    --concurrency N   Max delete requests to run at once (default: 8)
+    --max-retries N   Retry attempts per response after a 429 (default: 5)
+    --dry-run         List responses but don't delete them
+    --limit N         Only fetch first N responses (useful for testing)
+"""
+
+Contributed by [**trackme518**](https://github.com/trackme518)
+
 ## 👤 Author
 
 [**Sriraam Raja**](https://sriraam.me)
+
+
