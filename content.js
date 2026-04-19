@@ -4,12 +4,109 @@
 if (!window.__logsExporterData) {
   window.__logsExporterData = {
     collectedLogs: new Map(),
-    initialized: false
+    initialized: false,
+    autoScrollActive: false,
+    autoScrollRunId: 0,
+    autoScrollLastGrowthAt: 0,
+    autoScrollLastLogCount: 0,
+    autoScrollLastScrollHeight: 0
   };
   console.log('[Logs Exporter] Initialized storage');
 }
 
 const collectedLogs = window.__logsExporterData.collectedLogs;
+const AUTO_SCROLL_IDLE_TIMEOUT_MS = 5*60000; //5 minute timeout
+const AUTO_SCROLL_TICK_MS = 500;
+
+function getScrollElement() {
+  const firstLogLink = document.querySelector('a[href^="/logs/resp_"]');
+  let node = firstLogLink ? firstLogLink.parentElement : null;
+
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    const canScrollY = /(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 20;
+    if (canScrollY) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+
+  return document.scrollingElement || document.documentElement || document.body;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function updateScrollButton() {
+  const button = document.getElementById('openai-logs-scroll-btn');
+  if (!button) {
+    return;
+  }
+
+  button.textContent = window.__logsExporterData.autoScrollActive ? 'Stop Scroll' : 'Scroll';
+  button.style.backgroundColor = window.__logsExporterData.autoScrollActive ? '#0d8a6a' : '#10a37f';
+}
+
+function stopAutoScroll() {
+  window.__logsExporterData.autoScrollActive = false;
+  window.__logsExporterData.autoScrollRunId += 1;
+  window.__logsExporterData.autoScrollLastGrowthAt = 0;
+  window.__logsExporterData.autoScrollLastLogCount = 0;
+  window.__logsExporterData.autoScrollLastScrollHeight = 0;
+  updateScrollButton();
+}
+
+async function autoScrollLoop(runId) {
+  while (
+    window.__logsExporterData.autoScrollActive &&
+    window.__logsExporterData.autoScrollRunId === runId
+  ) {
+    const scrollElement = getScrollElement();
+    const currentScrollHeight = scrollElement.scrollHeight;
+    collectVisibleLogs();
+
+    const currentCount = collectedLogs.size;
+    const previousCount = window.__logsExporterData.autoScrollLastLogCount;
+    const previousScrollHeight = window.__logsExporterData.autoScrollLastScrollHeight;
+
+    if (currentCount > previousCount || currentScrollHeight > previousScrollHeight) {
+      window.__logsExporterData.autoScrollLastLogCount = currentCount;
+      window.__logsExporterData.autoScrollLastScrollHeight = currentScrollHeight;
+      window.__logsExporterData.autoScrollLastGrowthAt = Date.now();
+      console.log(`[Logs Exporter] Loaded ${currentCount} logs so far. Scroll height: ${currentScrollHeight}`);
+    } else if (!window.__logsExporterData.autoScrollLastGrowthAt) {
+      window.__logsExporterData.autoScrollLastGrowthAt = Date.now();
+    }
+
+    if (Date.now() - window.__logsExporterData.autoScrollLastGrowthAt >= AUTO_SCROLL_IDLE_TIMEOUT_MS) {
+      console.log('[Logs Exporter] No new logs for 30 seconds. Auto-scroll stopped.');
+      stopAutoScroll();
+      return;
+    }
+
+    scrollElement.scrollTop = scrollElement.scrollHeight;
+    await sleep(AUTO_SCROLL_TICK_MS);
+  }
+}
+
+function startAutoScroll() {
+  if (window.__logsExporterData.autoScrollActive) {
+    stopAutoScroll();
+    return;
+  }
+
+  window.__logsExporterData.autoScrollActive = true;
+  window.__logsExporterData.autoScrollRunId += 1;
+  window.__logsExporterData.autoScrollLastGrowthAt = Date.now();
+  window.__logsExporterData.autoScrollLastLogCount = collectedLogs.size;
+  window.__logsExporterData.autoScrollLastScrollHeight = getScrollElement().scrollHeight;
+  updateScrollButton();
+
+  const runId = window.__logsExporterData.autoScrollRunId;
+  autoScrollLoop(runId);
+  console.log('[Logs Exporter] Auto-scroll started.');
+}
 
 // Continuously collect logs from DOM as they appear
 function collectVisibleLogs() {
@@ -178,6 +275,45 @@ function createExportButton() {
   console.log('[Logs Exporter] Button added. Starting automatic collection...');
 }
 
+function createScrollButton() {
+  if (document.getElementById('openai-logs-scroll-btn')) {
+    return;
+  }
+
+  const button = document.createElement('button');
+  button.id = 'openai-logs-scroll-btn';
+  button.textContent = 'Scroll';
+  button.style.cssText = `
+    position: fixed;
+    top: 64px;
+    right: 20px;
+    z-index: 9999;
+    background-color: #10a37f;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background-color 0.2s;
+  `;
+
+  button.addEventListener('mouseenter', () => {
+    button.style.backgroundColor = window.__logsExporterData.autoScrollActive ? '#0c7359' : '#0d8a6a';
+  });
+
+  button.addEventListener('mouseleave', () => {
+    button.style.backgroundColor = window.__logsExporterData.autoScrollActive ? '#0d8a6a' : '#10a37f';
+  });
+
+  button.addEventListener('click', startAutoScroll);
+
+  document.body.appendChild(button);
+  updateScrollButton();
+}
+
 // Initialize: create button and start collecting
 function initialize() {
   // Prevent double initialization
@@ -187,6 +323,7 @@ function initialize() {
   }
 
   createExportButton();
+  createScrollButton();
 
   // Initial collection
   collectVisibleLogs();
